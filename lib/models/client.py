@@ -1,5 +1,7 @@
-import sqlite3
+import sys
+import os
 
+sys.path.append(os.path)
 class Client:
     def __init__(self, name, age, id=None):
         self.name = name
