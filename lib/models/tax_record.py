@@ -1,80 +1,81 @@
 import sqlite3
 
-class Client:
-    def __init__(self, name, age, id=None):
-        self.name = name
-        self.age = age
-        self.id = id  
+from models.client import Client
+from models.tax_calculator import calculate_tax
+
+class TaxRecord:
+    DB_PATH = "tax_calc.db"
+
+    def __init__(self, client: Client, income, id=None):
+        if not isinstance(client, Client):
+            raise TypeError("client must be a Client instance.")
+        self.client = client
+        self.income = income
+        self.id = id
 
     def __repr__(self):
-        return f"<Client name={self.name}, age={self.age}>"
+        return (
+            f"<TaxRecord id={self.id}, client={self.client.name}, "
+            f"income={self.income}, tax={self.tax}>"
+        )
 
     @property
-    def name(self):
-        return self._name
+    def income(self):
+        return self._income
 
-    @name.setter
-    def name(self, value):
-        if not isinstance(value, str):
-            raise TypeError("Name must be a string.")
-        if not value.strip():
-            raise ValueError("Name cannot be empty.")
-        self._name = value.strip()
+    @income.setter
+    def income(self, value):
+        if not isinstance(value, (int, float)):
+            raise TypeError("Income must be a number.")
+        if value < 0:
+            raise ValueError("Income cannot be negative.")
+        self._income = float(value)
 
     @property
-    def age(self):
-        return self._age
+    def tax(self):
+        return calculate_tax(self._income)
 
-    @age.setter
-    def age(self, value):
-        if not isinstance(value, int):
-            raise TypeError("Age must be an integer.")
-        if value < 18:
-            raise ValueError("Client must be at least 18 years old.")
-        self._age = value
-
-    def save(self):
-        with sqlite3.connect("tax_calc.db") as conn:
-            cursor = conn.cursor()
-            cursor.execute(
-                "INSERT INTO clients (name, age) VALUES (?, ?)",
-                (self.name, self.age)
-            )
-            self.id = cursor.lastrowid
-            conn.commit()
+    @property
+    def client_id(self):
+        return self.client.id
 
     @classmethod
     def create_table(cls):
-        with sqlite3.connect("tax_calc.db") as conn:
+        with sqlite3.connect(cls.DB_PATH) as conn:
             cursor = conn.cursor()
-            cursor.execute("""
-                CREATE TABLE IF NOT EXISTS clients (
+            cursor.execute('''
+                CREATE TABLE IF NOT EXISTS tax_records (
                     id INTEGER PRIMARY KEY AUTOINCREMENT,
-                    name TEXT NOT NULL,
-                    age INTEGER NOT NULL
+                    client_id INTEGER NOT NULL,
+                    income REAL NOT NULL,
+                    tax REAL NOT NULL,
+                    FOREIGN KEY(client_id) REFERENCES clients(id)
                 )
-            """)
+            ''')
             conn.commit()
 
-    @classmethod
-    def get_by_id(cls, client_id):
-        with sqlite3.connect("tax_calc.db") as conn:
+    def save(self):
+        with sqlite3.connect(self.DB_PATH) as conn:
             cursor = conn.cursor()
-            cursor.execute("SELECT id, name, age FROM clients WHERE id = ?", (client_id,))
-            row = cursor.fetchone()
-            if row:
-                return cls(name=row[1], age=row[2], id=row[0])
-            else:
-                return None
+            cursor.execute(
+                "INSERT INTO tax_records (client_id, income, tax) VALUES (?, ?, ?)",
+                (self.client_id, self.income, self.tax)
+            )
+            conn.commit()
+            self.id = cursor.lastrowid
 
     @classmethod
     def all(cls):
-        with sqlite3.connect("tax_calc.db") as conn:
+        cls.create_table()
+        with sqlite3.connect(cls.DB_PATH) as conn:
             cursor = conn.cursor()
-            cursor.execute("SELECT id, name, age FROM clients")
+            cursor.execute("SELECT id, client_id, income, tax FROM tax_records")
             rows = cursor.fetchall()
-        clients = []
+
+        records = []
         for row in rows:
-            client = cls(name=row[1], age=row[2], id=row[0])
-            clients.append(client)
-        return clients
+            client = Client.get_by_id(row[1])
+            if client:
+                record = cls(client, income=row[2], id=row[0])
+                records.append(record)
+        return records
